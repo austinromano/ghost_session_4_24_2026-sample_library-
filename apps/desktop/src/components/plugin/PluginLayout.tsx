@@ -31,7 +31,6 @@ import FullMixDropZone from '../tracks/FullMixDropZone';
 import SocialFeed from '../social/SocialFeed';
 import TransportBar from '../audio/TransportBar';
 import { TrackWithWidth, ArrangementDropZone, ArrangementScrollView, BarRuler, BarGridOverlay, ArrangementPlayhead, DraggableTrackList } from '../project/ArrangementComponents';
-import MixerStrip from '../project/MixerStrip';
 
 // ── SamplePackContentView (tightly coupled to parent state, kept inline) ──
 
@@ -156,7 +155,7 @@ function SamplePackContentView({
           const displayMembers = members.length > 0 ? members : user ? [{ userId: user.id, displayName: user.displayName, role: 'owner', avatarUrl: user.avatarUrl }] : [];
           return displayMembers.length > 0 && (
             <div className="mb-4">
-              <div className="flex items-center gap-4 bg-ghost-surface/80 rounded-lg border border-ghost-border/30 px-5 h-[60px]">
+              <div className="flex items-center gap-4 bg-ghost-surface/80 rounded-lg border border-ghost-border/30 px-5 py-2.5">
                 <div className="flex items-center -space-x-2.5">
                   {[...displayMembers].sort((a: any, b: any) => (a.role === 'owner' ? -1 : b.role === 'owner' ? 1 : 0)).map((m: any) => (
                     <div key={m.userId} className="relative group cursor-pointer transition-transform hover:scale-110 hover:z-10" title={m.displayName} style={{ border: '3px solid #0F0F18', borderRadius: '50%' }}>
@@ -251,7 +250,7 @@ export default function PluginLayout() {
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [videoGridHidden, setVideoGridHidden] = useState(false);
   const [shareStatus, setShareStatus] = useState('');
-  const [showAllBars, setShowAllBars] = useState(true);
+  const [showAllBars, setShowAllBars] = useState(false);
   const vizModes = ['bars', 'wave', 'radial', 'ghost'] as const;
   const [vizModeIdx, setVizModeIdx] = useState(0);
   const vizMode = vizModes[vizModeIdx];
@@ -305,7 +304,7 @@ export default function PluginLayout() {
 
   useEffect(() => {
     fetchProjects();
-    api.listFriends().then(setFriends).catch(() => {});
+    api.listUsers().then(setFriends).catch(() => {});
   }, []);
 
   // Polling fallback: refresh project data periodically in case
@@ -330,24 +329,13 @@ export default function PluginLayout() {
   useEffect(() => {
     if (!friendSearchQuery.trim()) { setFriendSearchResults([]); return; }
     const q = friendSearchQuery.toLowerCase();
-    const friendIds = new Set(friends.map(f => f.id));
+    const matches = friends.filter((f) => f.displayName.toLowerCase().includes(q) || (f as any).email?.toLowerCase().includes(q));
+    if (matches.length > 0) { setFriendSearchResults(matches as any); return; }
     const timer = setTimeout(() => {
-      api.listUsers().then((users) => {
-        setFriendSearchResults(
-          users
-            .filter((u) => u.displayName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-            .map(u => ({ ...u, isFriend: friendIds.has(u.id) }))
-        );
-      }).catch(() => {});
+      api.listUsers().then((users) => { setFriendSearchResults(users.filter((u) => u.displayName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))); }).catch(() => {});
     }, 300);
     return () => clearTimeout(timer);
   }, [friendSearchQuery, friends]);
-
-  const handleAddFriend = async (userId: string) => {
-    await api.addFriend(userId);
-    const updated = await api.listFriends();
-    setFriends(updated);
-  };
 
   useEffect(() => {
     if (!selectedProjectId && projects.length > 0) selectProject(projects[0].id);
@@ -453,13 +441,35 @@ export default function PluginLayout() {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
         </motion.button>
         <div className="w-6 h-px bg-white/10 mb-5" />
-        <PresenceFriendsList friends={friends} onlineActivity={onlineActivity} selectProject={selectProject} onRemoveFriend={async (id) => { await api.removeFriend(id); setFriends(friends.filter(f => f.id !== id)); }} />
+        <PresenceFriendsList friends={friends} onlineActivity={onlineActivity} selectProject={selectProject} />
       </div>
 
       {/* Main column */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ paddingBottom: 60 }}>
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
       {/* Top bar */}
       <div className="shrink-0 h-[46px] flex items-center px-5 relative" style={{ background: 'transparent' }}>
+        {currentProject && (
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-0 shrink-0">
+            <div className="flex items-center gap-1 px-3 shrink-0">
+              <span className="text-[13px] text-white/60 uppercase tracking-wider font-medium">BPM</span>
+              <input type="text" inputMode="numeric" maxLength={3} className="w-12 text-[16px] font-bold text-white/80 outline-none px-1.5 py-0.5 rounded-lg transition-all text-center cursor-text" style={{ fontFamily: "'Consolas', monospace", background: 'rgba(20,10,40,0.6)', border: '1px solid rgba(124,58,237,0.15)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)' }} value={projectBpm} placeholder="" onChange={(e) => { const val = e.target.value.replace(/\D/g, '').slice(0, 3); setProjectBpm(val); if (bpmTimer.current) clearTimeout(bpmTimer.current); bpmTimer.current = setTimeout(() => { if (val) updateProject(currentProject.id, { tempo: parseInt(val) }); }, 500); }} onBlur={() => { if (bpmTimer.current) clearTimeout(bpmTimer.current); if (projectBpm) updateProject(currentProject.id, { tempo: parseInt(projectBpm) }); }} />
+            </div>
+            <div className="w-px h-5 bg-white/10 shrink-0" />
+            <div className="flex items-center gap-1 px-3 shrink-0">
+              <span className="text-[13px] text-white/60 uppercase tracking-wider font-medium">Time</span>
+              <select className="text-[16px] font-bold text-white/80 outline-none px-1.5 py-0.5 rounded-lg transition-all text-center cursor-pointer appearance-none" style={{ fontFamily: "'Consolas', monospace", backgroundImage: 'none', background: 'rgba(20,10,40,0.6)', border: '1px solid rgba(124,58,237,0.15)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)' }} value={projectTimeSig || ''} onChange={(e) => { setProjectTimeSig(e.target.value); updateProject(currentProject.id, { timeSignature: e.target.value } as any); }}>
+                <option value="" style={{ background: '#1a0e2e', color: '#fff' }}></option>
+                {['2/4','3/4','4/4','5/4','6/4','7/4','6/8','7/8','9/8','12/8'].map(ts => (<option key={ts} style={{ background: '#1a0e2e', color: '#fff' }} value={ts}>{ts}</option>))}
+              </select>
+            </div>
+            <div className="w-px h-5 bg-white/10 shrink-0" />
+            <div className="flex items-center gap-1 px-3 shrink-0">
+              <span className="text-[13px] text-white/60 uppercase tracking-wider font-medium">Key</span>
+              <input type="text" maxLength={3} className="w-12 text-[16px] font-bold text-white/80 outline-none px-1.5 py-0.5 rounded-lg transition-all text-center cursor-text" style={{ fontFamily: "'Consolas', monospace", background: 'rgba(20,10,40,0.6)', border: '1px solid rgba(124,58,237,0.15)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)' }} value={projectKey} placeholder="" onChange={(e) => { const val = e.target.value.slice(0, 3); setProjectKey(val); if (keyTimer.current) clearTimeout(keyTimer.current); keyTimer.current = setTimeout(() => { if (val) updateProject(currentProject.id, { key: val }); }, 500); }} onBlur={() => { if (keyTimer.current) clearTimeout(keyTimer.current); if (projectKey) updateProject(currentProject.id, { key: projectKey }); }} />
+            </div>
+          </div>
+        )}
+
         <div className="flex-1" />
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => { setShowSocial(true); setSelectedProjectId(null); samplePackState.setSelectedPackId(null); setShowMarketplace(false); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-white/50 hover:text-white transition-colors">
@@ -498,8 +508,8 @@ export default function PluginLayout() {
           <RemoteCursors />
           {showSettings && (<><div className="fixed inset-0 z-40" onClick={() => setShowSettings(false)} /><SettingsPopup user={user} onSignOut={() => { setShowSettings(false); logout(); }} onDeleteAccount={async () => { setShowSettings(false); await useAuthStore.getState().deleteAccount(); }} onClose={() => setShowSettings(false)} onProfile={() => { setShowSocial(true); setSelectedProjectId(null); samplePackState.setSelectedPackId(null); }} /></>)}
           {showNotifs && (<><div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} /><NotificationPopup invitations={notifs.invitations} onAccept={acceptInvite} onDecline={declineInvite} notifications={notifs.notifications} onMarkRead={notifs.markAllRead} /></>)}
-          {showInvite && selectedProjectId && <InviteModal open={showInvite} onClose={() => setShowInvite(false)} projectId={selectedProjectId} onInvited={() => api.listFriends().then(setFriends).catch(() => {})} />}
-          {showInvite && samplePackState.selectedPackId && !selectedProjectId && <InviteModal open={showInvite} onClose={() => setShowInvite(false)} projectId={samplePackState.selectedPackId!} onInvited={() => api.listFriends().then(setFriends).catch(() => {})} />}
+          {showInvite && selectedProjectId && <InviteModal open={showInvite} onClose={() => setShowInvite(false)} projectId={selectedProjectId} />}
+          {showInvite && samplePackState.selectedPackId && !selectedProjectId && <InviteModal open={showInvite} onClose={() => setShowInvite(false)} projectId={samplePackState.selectedPackId!} />}
 
           <div className="flex-1 flex min-h-0 gap-2">
             {selectedProjectId && currentProject ? (
@@ -509,40 +519,6 @@ export default function PluginLayout() {
                   <div className="flex items-center gap-3 shrink-0 rounded-2xl mb-1 pl-6 pr-3 min-w-0 h-[50px] glass glass-glow">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00FFC8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                     <input className="text-[15px] font-bold text-white bg-transparent border border-transparent hover:bg-white/[0.04] hover:border-white/[0.08] focus:bg-white/[0.04] focus:border-ghost-green/30 outline-none px-2 py-0 rounded-md transition-colors min-w-[60px] flex-1 cursor-text" value={projectName} onChange={(e) => { const val = e.target.value; setProjectName(val); if (projectNameTimer.current) clearTimeout(projectNameTimer.current); projectNameTimer.current = setTimeout(() => { if (val.trim()) updateProject(currentProject.id, { name: val }); }, 500); }} onBlur={() => { if (projectNameTimer.current) clearTimeout(projectNameTimer.current); if (projectName.trim() && projectName !== currentProject.name) updateProject(currentProject.id, { name: projectName }); }} />
-                    {/* BPM / TIME / KEY */}
-                    <div className="flex items-center gap-0 shrink-0">
-                      <div className="w-px h-4 bg-white/10 shrink-0 mr-1" />
-                      <motion.button
-                        onClick={() => { /* TODO: AI analyze project */ }}
-                        className="relative h-[28px] px-3 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 overflow-hidden shrink-0 mr-2"
-                        style={{ background: 'linear-gradient(135deg, #7C3AED 0%, #00FFC8 100%)', color: '#fff', boxShadow: '0 0 12px rgba(124,58,237,0.4), 0 0 24px rgba(0,255,200,0.15)' }}
-                        whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(124,58,237,0.6), 0 0 40px rgba(0,255,200,0.25)' }}
-                        whileTap={{ scale: 0.95 }}
-                        title="AI Analyze Project"
-                      >
-                        <motion.div className="absolute inset-0 opacity-30" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)', backgroundSize: '200% 100%' }} animate={{ backgroundPosition: ['100% 0%', '-100% 0%'] }} transition={{ duration: 2, repeat: Infinity, ease: 'linear' }} />
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="relative z-10"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-2.05-6.95l-1.41 1.41m-7.08 7.08l-1.41 1.41m0-9.9l1.41 1.41m7.08 7.08l1.41 1.41M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" /></svg>
-                        <span className="relative z-10">Analyze</span>
-                      </motion.button>
-                      <div className="w-px h-4 bg-white/10 shrink-0 mr-1" />
-                      <div className="flex items-center gap-1 px-2 shrink-0">
-                        <span className="text-[11px] text-white/50 uppercase tracking-wider font-medium">BPM</span>
-                        <input type="text" inputMode="numeric" maxLength={3} className="w-10 text-[13px] font-bold text-white/80 outline-none px-1 py-0.5 rounded transition-all text-center cursor-text" style={{ fontFamily: "'Consolas', monospace", background: 'rgba(20,10,40,0.6)', border: '1px solid rgba(124,58,237,0.15)' }} value={projectBpm} onChange={(e) => { const val = e.target.value.replace(/\D/g, '').slice(0, 3); setProjectBpm(val); if (bpmTimer.current) clearTimeout(bpmTimer.current); bpmTimer.current = setTimeout(() => { if (val) updateProject(currentProject.id, { tempo: parseInt(val) }); }, 500); }} onBlur={() => { if (bpmTimer.current) clearTimeout(bpmTimer.current); if (projectBpm) updateProject(currentProject.id, { tempo: parseInt(projectBpm) }); }} />
-                      </div>
-                      <div className="w-px h-4 bg-white/10 shrink-0" />
-                      <div className="flex items-center gap-1 px-2 shrink-0">
-                        <span className="text-[11px] text-white/50 uppercase tracking-wider font-medium">Time</span>
-                        <select className="text-[13px] font-bold text-white/80 outline-none px-1 py-0.5 rounded transition-all text-center cursor-pointer appearance-none" style={{ fontFamily: "'Consolas', monospace", backgroundImage: 'none', background: 'rgba(20,10,40,0.6)', border: '1px solid rgba(124,58,237,0.15)' }} value={projectTimeSig || ''} onChange={(e) => { setProjectTimeSig(e.target.value); updateProject(currentProject.id, { timeSignature: e.target.value } as any); }}>
-                          <option value="" style={{ background: '#1a0e2e', color: '#fff' }}></option>
-                          {['2/4','3/4','4/4','5/4','6/4','7/4','6/8','7/8','9/8','12/8'].map(ts => (<option key={ts} style={{ background: '#1a0e2e', color: '#fff' }} value={ts}>{ts}</option>))}
-                        </select>
-                      </div>
-                      <div className="w-px h-4 bg-white/10 shrink-0" />
-                      <div className="flex items-center gap-1 px-2 shrink-0">
-                        <span className="text-[11px] text-white/50 uppercase tracking-wider font-medium">Key</span>
-                        <input type="text" maxLength={3} className="w-10 text-[13px] font-bold text-white/80 outline-none px-1 py-0.5 rounded transition-all text-center cursor-text" style={{ fontFamily: "'Consolas', monospace", background: 'rgba(20,10,40,0.6)', border: '1px solid rgba(124,58,237,0.15)' }} value={projectKey} onChange={(e) => { const val = e.target.value.slice(0, 3); setProjectKey(val); if (keyTimer.current) clearTimeout(keyTimer.current); keyTimer.current = setTimeout(() => { if (val) updateProject(currentProject.id, { key: val }); }, 500); }} onBlur={() => { if (keyTimer.current) clearTimeout(keyTimer.current); if (projectKey) updateProject(currentProject.id, { key: projectKey }); }} />
-                      </div>
-                    </div>
                     {currentProject.updatedAt && (<><div className="w-px h-5 bg-white/10 shrink-0" /><span className="text-[14px] text-ghost-green font-medium shrink-0 whitespace-nowrap ml-2">{new Date(currentProject.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></>)}
                     <div className="relative z-20" ref={projectMenuRef}>
                       <button onClick={(e) => { e.stopPropagation(); setShowProjectMenu(!showProjectMenu); }} className="w-9 h-9 flex items-center justify-center rounded-md text-ghost-text-muted hover:text-white hover:bg-white/[0.1] transition-colors cursor-pointer">
@@ -603,22 +579,8 @@ export default function PluginLayout() {
                       <div className="flex items-center -space-x-2">
                         {[...members].sort((a: any, b: any) => (a.role === 'owner' ? -1 : b.role === 'owner' ? 1 : 0)).map((m: any) => {
                           const isOnline = onlineUsers.some((u) => u.userId === m.userId);
-                          const isOwner = currentProject?.ownerId === user?.id;
-                          const isSelf = m.userId === user?.id;
                           return (
-                          <div key={m.userId} className="relative group cursor-pointer transition-transform hover:scale-105 hover:z-10" title={m.displayName} style={{ border: '2.5px solid #0A0A0F', borderRadius: '50%' }}>
-                            <Avatar name={m.displayName || '?'} src={m.avatarUrl} size="lg" colour={m.role === 'owner' ? '#F0B232' : '#23A559'} />
-                            {isOnline && <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full" style={{ background: '#23A559', border: '2.5px solid #0A0A0F' }} />}
-                            {isOwner && !isSelf && m.role !== 'owner' && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); if (confirm(`Remove ${m.displayName} from this project?`)) { api.removeMember(selectedProjectId!, m.userId).then(() => fetchProject(selectedProjectId!)); } }}
-                                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-400 z-20"
-                                title={`Remove ${m.displayName}`}
-                              >
-                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                              </button>
-                            )}
-                          </div>
+                          <div key={m.userId} className="relative group cursor-pointer transition-transform hover:scale-105 hover:z-10" title={m.displayName} style={{ border: '2.5px solid #0A0A0F', borderRadius: '50%' }}><Avatar name={m.displayName || '?'} src={m.avatarUrl} size="lg" colour={m.role === 'owner' ? '#F0B232' : '#23A559'} />{isOnline && <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full" style={{ background: '#23A559', border: '2.5px solid #0A0A0F' }} />}</div>
                           );
                         })}
                       </div>
@@ -640,38 +602,26 @@ export default function PluginLayout() {
                     <div className="flex items-center gap-1 mb-1">
                       <button
                         onClick={() => {
-                          // Export tracks to native JUCE drag strip
-                          const tracks = currentProject.tracks;
-                          if (!tracks || tracks.length === 0) return;
-                          const items = tracks.filter((t: any) => t.fileId).map((t: any) => ({
-                            url: api.getDirectDownloadUrl(selectedProjectId!, t.fileId),
-                            name: (t.name || t.fileName || 'track') + '.wav',
-                          }));
-                          // Try JUCE native function
-                          if ((window as any).__ghostExportForDrag) {
-                            (window as any).__ghostExportForDrag(items);
-                          } else {
-                            // Browser fallback: download files
-                            items.forEach(async (item: any) => {
-                              try {
-                                const res = await fetch(item.url);
-                                const blob = await res.blob();
-                                const a = document.createElement('a');
-                                a.href = URL.createObjectURL(blob);
-                                a.download = item.name;
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                URL.revokeObjectURL(a.href);
-                              } catch {}
-                            });
-                          }
+                          if (!currentProject?.tracks) return;
+                          const items = currentProject.tracks
+                            .filter((t: any) => t.fileId)
+                            .map((t: any) => ({
+                              url: api.getDirectDownloadUrl(selectedProjectId!, t.fileId),
+                              name: (t.name || 'stem') + '.wav',
+                            }));
+                          if (items.length === 0) return;
+                          // Set global variable for C++ timer to pick up
+                          (window as any).__ghostPendingExport = JSON.stringify(items);
+                          console.log('[DownloadStems] Set pending export:', items.length, 'items');
                         }}
-                        className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[12px] font-bold transition-colors hover:opacity-90"
-                        style={{ backgroundColor: '#00FFC8', color: '#000', boxShadow: '0 0 12px rgba(0,255,200,0.3)' }}
-                        title="Download Stems"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors"
+                        style={{ backgroundColor: '#00FFC8', color: '#000' }}
                       >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
                         Download Stems
                       </button>
                       <div className="flex-1" />
@@ -689,7 +639,6 @@ export default function PluginLayout() {
                         {showAllBars ? '16 Bars' : 'Full View'}
                       </button>
                     </div>
-                    <div className="relative" style={{ paddingBottom: 40 }}>
                     <ArrangementDropZone projectId={selectedProjectId!} onFilesAdded={() => fetchProject(selectedProjectId!)}>
                       <ArrangementScrollView showAll={showAllBars}>
                       <BarRuler />
@@ -698,10 +647,6 @@ export default function PluginLayout() {
                       <ArrangementPlayhead />
                       </ArrangementScrollView>
                     </ArrangementDropZone>
-                    <div className="sticky bottom-0 z-20">
-                      <MixerStrip tracks={currentProject.tracks} selectedProjectId={selectedProjectId!} />
-                    </div>
-                    </div>
                   </div>
                   </div>
                   </div>

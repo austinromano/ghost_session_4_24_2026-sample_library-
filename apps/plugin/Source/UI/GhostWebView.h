@@ -19,9 +19,13 @@ public:
     /** Pre-cache a file to temp so drag-to-DAW is instant. */
     void precacheFile(const juce::String& downloadUrl, const juce::String& fileName);
 
+    /** Called when a stem is downloaded via ghost://download-stem */
+    std::function<void(const juce::String& name, const juce::File& file)> onStemDownloaded;
+
 private:
     juce::File tempDir;
     GhostSessionProcessor& proc;
+    bool exportProcessing = false;
 
     // Pre-cached file paths: downloadUrl -> local file
     std::map<juce::String, juce::File> fileCache;

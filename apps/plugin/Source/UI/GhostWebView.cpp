@@ -57,6 +57,113 @@ bool GhostWebView::pageAboutToLoad(const juce::String& newURL)
         return false;
     }
 
+    if (newURL.startsWith("ghost://download-stem"))
+    {
+        GhostLog::write("[WebView] Intercepted download-stem");
+        auto dlUrl = getQueryParam(newURL, "url");
+        auto dlName = getQueryParam(newURL, "fileName");
+        if (dlUrl.isNotEmpty() && dlName.isNotEmpty())
+        {
+            auto td = tempDir;
+            auto safeThis = juce::Component::SafePointer<GhostWebView>(this);
+            std::thread([dlUrl, dlName, td, safeThis]() {
+                auto destFile = td.getChildFile(dlName);
+                if (!destFile.existsAsFile() || destFile.getSize() == 0)
+                {
+                    GhostLog::write("[Download] Downloading: " + dlName);
+                    juce::URL u(dlUrl);
+                    auto stream = u.createInputStream(
+                        juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                            .withConnectionTimeoutMs(30000));
+                    if (stream)
+                    {
+                        juce::FileOutputStream fos(destFile);
+                        if (fos.openedOk()) { fos.writeFromInputStream(*stream, -1); fos.flush(); }
+                    }
+                }
+                if (destFile.existsAsFile() && destFile.getSize() > 0)
+                {
+                    GhostLog::write("[Download] Ready: " + dlName + " (" + juce::String(destFile.getSize()) + " bytes)");
+                    juce::MessageManager::callAsync([safeThis, dlName, destFile]() {
+                        if (safeThis != nullptr)
+                        {
+                            if (safeThis->onStemDownloaded)
+                                safeThis->onStemDownloaded(dlName, destFile);
+                            safeThis->evaluateJavascript("if(window.__ghostDownloadComplete__) window.__ghostDownloadComplete__('" + dlName + "');");
+                        }
+                    });
+                }
+                else
+                {
+                    GhostLog::write("[Download] Failed: " + dlName);
+                }
+            }).detach();
+        }
+        return false;
+    }
+
+    if (newURL.startsWith("ghost://precache-stem"))
+    {
+        auto pcUrl = getQueryParam(newURL, "url");
+        auto pcName = getQueryParam(newURL, "fileName");
+        if (pcUrl.isNotEmpty() && pcName.isNotEmpty())
+            precacheFile(pcUrl, pcName);
+        return false;
+    }
+
+    if (newURL.startsWith("ghost://export-stems"))
+    {
+        GhostLog::write("[WebView] Intercepted export-stems");
+        auto itemsJson = getQueryParam(newURL, "items");
+        if (itemsJson.isNotEmpty())
+        {
+            auto parsed = juce::JSON::parse(itemsJson);
+            if (parsed.isArray())
+            {
+                auto* arr = parsed.getArray();
+                auto td = tempDir;
+                auto items = *arr;
+                auto safeThis = juce::Component::SafePointer<GhostWebView>(this);
+
+                std::thread([items, td, safeThis]()
+                {
+                    for (int i = 0; i < items.size(); ++i)
+                    {
+                        auto url = items[i].getProperty("url", "").toString();
+                        auto name = items[i].getProperty("name", "").toString();
+                        if (url.isEmpty() || name.isEmpty()) continue;
+
+                        auto destFile = td.getChildFile(name);
+                        if (!destFile.existsAsFile() || destFile.getSize() == 0)
+                        {
+                            GhostLog::write("[ExportStems] Downloading: " + name);
+                            juce::URL u(url);
+                            auto stream = u.createInputStream(
+                                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                                    .withConnectionTimeoutMs(30000));
+                            if (stream)
+                            {
+                                juce::FileOutputStream fos(destFile);
+                                if (fos.openedOk()) { fos.writeFromInputStream(*stream, -1); fos.flush(); }
+                            }
+                        }
+
+                        if (destFile.existsAsFile() && destFile.getSize() > 0)
+                        {
+                            GhostLog::write("[ExportStems] Ready: " + name);
+                            juce::MessageManager::callAsync([safeThis, name, destFile]()
+                            {
+                                if (safeThis != nullptr && safeThis->onStemDownloaded)
+                                    safeThis->onStemDownloaded(name, destFile);
+                            });
+                        }
+                    }
+                }).detach();
+            }
+        }
+        return false;
+    }
+
     if (newURL.startsWith("ghost://start-recording"))
     { handleStartRecording(); return false; }
 
@@ -121,6 +228,81 @@ void GhostWebView::timerCallback()
         + juce::String(playLen, 2) + ");}";
 
     evaluateJavascript(js);
+
+    // Poll for pending export — JS sets __ghostPendingExport when user clicks Download Stems
+    if (!exportProcessing)
+    {
+        evaluateJavascript(
+            "(function(){ if(window.__ghostPendingExport){ var d=window.__ghostPendingExport; window.__ghostPendingExport=null; return d; } return ''; })()",
+            [this](juce::WebBrowserComponent::EvaluationResult result)
+            {
+                auto* val = result.getResult();
+                if (val == nullptr || !val->isString())
+                    return;
+                auto jsonStr = val->toString();
+                if (jsonStr.isEmpty() || jsonStr == "null" || jsonStr == "undefined")
+                    return;
+
+                GhostLog::write("[Timer] Got pending export: " + jsonStr.substring(0, 100));
+                exportProcessing = true;
+
+                // Parse and download
+                auto parsed = juce::JSON::parse(jsonStr);
+                if (!parsed.isArray()) { exportProcessing = false; return; }
+
+                auto* arr = parsed.getArray();
+                auto td = tempDir;
+                auto items = *arr;
+                auto safeThis = juce::Component::SafePointer<GhostWebView>(this);
+
+                std::thread([items, td, safeThis]()
+                {
+                    juce::StringArray names;
+                    juce::Array<juce::File> files;
+
+                    for (int i = 0; i < items.size(); ++i)
+                    {
+                        auto url = items[i].getProperty("url", "").toString();
+                        auto name = items[i].getProperty("name", "").toString();
+                        if (url.isEmpty() || name.isEmpty()) continue;
+
+                        auto destFile = td.getChildFile(name);
+                        if (!destFile.existsAsFile() || destFile.getSize() == 0)
+                        {
+                            GhostLog::write("[Export] Downloading: " + name);
+                            juce::URL u(url);
+                            auto stream = u.createInputStream(
+                                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                                    .withConnectionTimeoutMs(30000));
+                            if (stream)
+                            {
+                                juce::FileOutputStream fos(destFile);
+                                if (fos.openedOk()) { fos.writeFromInputStream(*stream, -1); fos.flush(); }
+                            }
+                        }
+
+                        if (destFile.existsAsFile() && destFile.getSize() > 0)
+                        {
+                            GhostLog::write("[Export] Ready: " + name);
+                            names.add(name);
+                            files.add(destFile);
+                        }
+                    }
+
+                    juce::MessageManager::callAsync([names, files, safeThis]()
+                    {
+                        if (safeThis == nullptr) return;
+                        safeThis->exportProcessing = false;
+                        if (safeThis->onStemDownloaded)
+                        {
+                            for (int i = 0; i < names.size(); ++i)
+                                safeThis->onStemDownloaded(names[i], files[i]);
+                        }
+                        GhostLog::write("[Export] DragStrip should now have " + juce::String(names.size()) + " stems");
+                    });
+                }).detach();
+            });
+    }
 }
 
 void GhostWebView::handleStartRecording() { proc.startRecording(); }

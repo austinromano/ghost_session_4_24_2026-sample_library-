@@ -18,6 +18,7 @@ public:
     void setTracks(const juce::Array<TrackItem>& items);
     void clear();
     bool hasItems() const { return tracks.size() > 0; }
+    const juce::Array<TrackItem>& getTracks() const { return tracks; }
 
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;

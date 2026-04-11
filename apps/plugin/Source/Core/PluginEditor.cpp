@@ -169,30 +169,43 @@ GhostSessionEditor::GhostSessionEditor(GhostSessionProcessor& p)
         .withNativeFunction("exportForDrag", [this](const juce::Array<juce::var>& args,
                                                      juce::WebBrowserComponent::NativeFunctionCompletion complete)
         {
-            // Args: array of {url, fileName} objects
-            GhostLog::write("[Export] exportForDrag called with " + juce::String(args.size()) + " args");
+            GhostLog::write("[Export] exportForDrag CALLED with " + juce::String(args.size()) + " args");
 
-            juce::Array<DragStrip::TrackItem> items;
-            auto tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                               .getChildFile("GhostSession");
-            if (!tempDir.exists()) tempDir.createDirectory();
+            if (args.isEmpty()) { complete(juce::var("no args")); return; }
 
-            for (auto& arg : args)
+            auto jsonStr = args[0].toString();
+            GhostLog::write("[Export] JSON: " + jsonStr.substring(0, 200));
+
+            auto parsed = juce::JSON::parse(jsonStr);
+            if (!parsed.isArray())
             {
-                auto* obj = arg.getDynamicObject();
-                if (!obj) continue;
-                auto url = obj->getProperty("url").toString();
-                auto name = obj->getProperty("name").toString();
+                GhostLog::write("[Export] Not an array, trying direct");
+                complete(juce::var("bad json"));
+                return;
+            }
+
+            auto* arr = parsed.getArray();
+            GhostLog::write("[Export] Got " + juce::String(arr->size()) + " items");
+
+            auto td = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("GhostSession");
+            if (!td.exists()) td.createDirectory();
+
+            // Download synchronously — blocks briefly but guarantees DragStrip shows
+            juce::Array<DragStrip::TrackItem> downloaded;
+            for (int i = 0; i < arr->size(); ++i)
+            {
+                auto url = (*arr)[i].getProperty("url", "").toString();
+                auto name = (*arr)[i].getProperty("name", "").toString();
                 if (url.isEmpty() || name.isEmpty()) continue;
 
-                auto destFile = tempDir.getChildFile(name);
+                GhostLog::write("[Export] Downloading: " + name);
+                auto destFile = td.getChildFile(name);
                 if (!destFile.existsAsFile() || destFile.getSize() == 0)
                 {
-                    GhostLog::write("[Export] Downloading: " + name);
-                    juce::URL downloadUrl(url);
-                    auto stream = downloadUrl.createInputStream(
+                    juce::URL u(url);
+                    auto stream = u.createInputStream(
                         juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                            .withConnectionTimeoutMs(15000));
+                            .withConnectionTimeoutMs(30000));
                     if (stream)
                     {
                         juce::FileOutputStream fos(destFile);
@@ -203,13 +216,15 @@ GhostSessionEditor::GhostSessionEditor(GhostSessionProcessor& p)
                 if (destFile.existsAsFile() && destFile.getSize() > 0)
                 {
                     GhostLog::write("[Export] Ready: " + name + " (" + juce::String(destFile.getSize()) + " bytes)");
-                    items.add({ name, destFile });
+                    downloaded.add({ name, destFile });
                 }
             }
 
-            dragStrip.setTracks(items);
-            resized(); // Show the strip
-            complete(juce::var(items.size()));
+            GhostLog::write("[Export] Setting DragStrip with " + juce::String(downloaded.size()) + " stems");
+            dragStrip.setTracks(downloaded);
+            resized();
+
+            complete(juce::var(downloaded.size()));
         })
         .withNativeFunction("prepareTrackDrag", [this](const juce::Array<juce::var>& args,
                                                       juce::WebBrowserComponent::NativeFunctionCompletion complete)
@@ -273,35 +288,37 @@ GhostSessionEditor::GhostSessionEditor(GhostSessionProcessor& p)
             }
         })
         .withUserScript(
-            "window.__ghostExportForDrag = function(tracks) {"
-            "  if (window.__JUCE__ && window.__JUCE__.backend) {"
-            "    try {"
-            "      window.__JUCE__.backend.emitEvent('__juce__invoke', {"
-            "        name: 'exportForDrag',"
-            "        params: tracks,"
-            "        resultId: Date.now()"
-            "      });"
-            "      return true;"
-            "    } catch(e) { console.log('Export error:', e); }"
-            "  }"
-            "  return false;"
-            "};"
-            "window.__ghostPrepareTrackDrag = function(trackInfo) {"
-            "  if (window.__JUCE__ && window.__JUCE__.backend) {"
-            "    try {"
-            "      window.__JUCE__.backend.emitEvent('__juce__invoke', {"
-            "        name: 'prepareTrackDrag',"
-            "        params: [trackInfo],"
-            "        resultId: Date.now()"
-            "      });"
-            "      return true;"
-            "    } catch(e) { console.log('PrepDrag error:', e); }"
-            "  }"
-            "  return false;"
-            "};"
+            "function __ghostWaitForJuce(cb) {"
+            "  if (window.__JUCE__ && window.__JUCE__.backend && window.__JUCE__.getNativeFunction) { cb(); return; }"
+            "  var iv = setInterval(function() {"
+            "    if (window.__JUCE__ && window.__JUCE__.backend && window.__JUCE__.getNativeFunction) { clearInterval(iv); cb(); }"
+            "  }, 50);"
+            "}"
+            "__ghostWaitForJuce(function() {"
+            "  var _exportFn = window.__JUCE__.getNativeFunction('exportForDrag');"
+            "  var _dragFn = window.__JUCE__.getNativeFunction('prepareTrackDrag');"
+            "  window.__ghostExportForDrag = function(items) {"
+            "    _exportFn(JSON.stringify(items));"
+            "  };"
+            "  window.__ghostPrepareTrackDrag = function(info) {"
+            "    _dragFn(JSON.stringify(info));"
+            "  };"
+            "  console.log('[GhostSession] Native drag functions ready');"
+            "});"
         );
 
     webView = std::make_unique<GhostWebView>(options, p);
+
+    // When a stem is downloaded via ghost://download-stem, add it to the DragStrip
+    webView->onStemDownloaded = [this](const juce::String& name, const juce::File& file)
+    {
+        GhostLog::write("[Editor] Stem downloaded, adding to DragStrip: " + name);
+        auto current = dragStrip.getTracks();
+        current.add({ name, file });
+        dragStrip.setTracks(current);
+        resized();
+    };
+
     addAndMakeVisible(*webView);
     addAndMakeVisible(dragStrip);
     addChildComponent(dragOverlay); // Hidden initially
