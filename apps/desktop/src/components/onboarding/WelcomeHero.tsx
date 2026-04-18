@@ -30,6 +30,22 @@ export default function WelcomeHero({ userName, hasProjects, onCreateProject, on
 
   return (
     <div className="relative flex-1 flex items-center justify-center px-8 overflow-hidden">
+      {/* Ambient glow orbs */}
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute -top-32 -left-32 w-[520px] h-[520px] rounded-full blur-[120px]"
+        style={{ background: 'radial-gradient(circle, rgba(0,255,200,0.18) 0%, rgba(0,255,200,0) 70%)' }}
+        animate={{ x: [0, 40, 0], y: [0, -20, 0] }}
+        transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-40 -right-32 w-[540px] h-[540px] rounded-full blur-[140px]"
+        style={{ background: 'radial-gradient(circle, rgba(124,58,237,0.22) 0%, rgba(124,58,237,0) 70%)' }}
+        animate={{ x: [0, -30, 0], y: [0, 30, 0] }}
+        transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut' }}
+      />
+
       <motion.div
         variants={container}
         initial="hidden"
