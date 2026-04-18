@@ -1,5 +1,6 @@
 #include "GhostWebView.h"
 #include "GhostLog.h"
+#include "OfflineHtml.h"
 #include "../Core/PluginProcessor.h"
 
 GhostWebView::GhostWebView(const Options& options, GhostSessionProcessor& processor)
@@ -190,6 +191,24 @@ bool GhostWebView::pageAboutToLoad(const juce::String& newURL)
     }
 
     return true;
+}
+
+void GhostWebView::pageFinishedLoading(const juce::String& url)
+{
+    GhostLog::write("[WebView] Page loaded: " + url.substring(0, 80));
+}
+
+bool GhostWebView::pageLoadHadNetworkError(const juce::String& errorMessage)
+{
+    GhostLog::write("[WebView] Network error, serving embedded offline page: " + errorMessage);
+    // Navigate on the message thread to avoid re-entering from inside a load callback.
+    auto safeThis = juce::Component::SafePointer<GhostWebView>(this);
+    juce::MessageManager::callAsync([safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->goToURL(GhostOffline::toDataUrl());
+    });
+    return true; // suppress WebView2's native error page
 }
 
 void GhostWebView::handleWebMessage(const juce::String& message)

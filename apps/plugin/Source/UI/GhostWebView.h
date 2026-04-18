@@ -14,6 +14,8 @@ public:
     ~GhostWebView() override;
 
     bool pageAboutToLoad(const juce::String& newURL) override;
+    void pageFinishedLoading(const juce::String& url) override;
+    bool pageLoadHadNetworkError(const juce::String& errorMessage) override;
     void shutdown() { stopTimer(); }
 
     /** Pre-cache a file to temp so drag-to-DAW is instant. */
