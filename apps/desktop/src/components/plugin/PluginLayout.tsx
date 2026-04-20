@@ -25,6 +25,7 @@ import NotificationPopup, { BellIcon } from '../common/NotificationPopup';
 import InboxPopup from '../common/InboxPopup';
 import InviteModal from '../common/InviteModal';
 import VideoGrid from '../video/VideoGrid';
+import ScreenShareView from '../video/ScreenShareView';
 import FullMixDropZone from '../tracks/FullMixDropZone';
 import SocialFeed from '../social/SocialFeed';
 import TransportBar from '../audio/TransportBar';
@@ -527,11 +528,32 @@ export default function PluginLayout() {
                             </div>
                           )}
 
-                          {!videoGridHidden && (
-                            <div className="mb-3">
-                              <VideoGrid members={members} userId={user?.id} variant="row" webrtc={webrtc} />
-                            </div>
-                          )}
+                          {(() => {
+                            const local = webrtc.localScreenStream;
+                            const remoteFirst = Array.from(webrtc.remoteScreenStreams.entries())[0];
+                            if (local) {
+                              return (
+                                <ScreenShareView
+                                  stream={local}
+                                  sharerName="You"
+                                  isLocal
+                                  onStop={() => webrtc.stopScreen()}
+                                />
+                              );
+                            }
+                            if (remoteFirst) {
+                              const [sharerId, stream] = remoteFirst;
+                              const m = members.find((mm: any) => mm.userId === sharerId);
+                              return (
+                                <ScreenShareView
+                                  stream={stream}
+                                  sharerName={m?.displayName || 'A collaborator'}
+                                  isLocal={false}
+                                />
+                              );
+                            }
+                            return null;
+                          })()}
 
                           <CollaboratorsBar
                             members={members}
@@ -660,6 +682,11 @@ export default function PluginLayout() {
                             <Avatar name={user?.displayName || '?'} src={user?.avatarUrl} size="sm" />
                           </button>
                         </div>
+                        {!videoGridHidden && (
+                          <div className="w-full shrink-0">
+                            <VideoGrid members={members} userId={user?.id} webrtc={webrtc} />
+                          </div>
+                        )}
                         <div className="w-full flex flex-col min-h-0 flex-1 overflow-hidden glass glass-glow rounded-2xl">
                           <ChatPanel />
                         </div>

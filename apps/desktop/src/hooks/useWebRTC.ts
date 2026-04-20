@@ -19,6 +19,7 @@ function key(userId: string, kind: StreamKind) { return `${kind}:${userId}`; }
 export function useWebRTC(projectId: string | null, userId: string | null) {
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [remoteScreenStreams, setRemoteScreenStreams] = useState<Map<string, MediaStream>>(new Map());
+  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
 
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());           // keyed by "camera:uid" | "screen:uid"
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -168,6 +169,7 @@ export function useWebRTC(projectId: string | null, userId: string | null) {
 
   const publishScreen = useCallback(async (stream: MediaStream, onlineUserIds: string[]) => {
     localScreenRef.current = stream;
+    setLocalScreenStream(stream);
     for (const uid of onlineUserIds) {
       if (uid !== userId) await callUser(uid, 'screen');
     }
@@ -182,6 +184,7 @@ export function useWebRTC(projectId: string | null, userId: string | null) {
       localScreenRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
     }
     localScreenRef.current = null;
+    setLocalScreenStream(null);
   }, [closePeer]);
 
   // ── Signalling ────────────────────────────────────────────────────────
@@ -246,6 +249,7 @@ export function useWebRTC(projectId: string | null, userId: string | null) {
   return {
     remoteStreams,
     remoteScreenStreams,
+    localScreenStream,
     publishStream,
     replaceStream,
     stopStream,
