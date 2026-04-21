@@ -127,6 +127,10 @@ function SocialFeed({ user, friends, initialProfileUserId, onProfileShown }: { u
   const [exploreUsers, setExploreUsers] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [profileUser, setProfileUser] = useState<any>(null);
+  // Tracks the "avatar-click from elsewhere" flow. Initialized true when the
+  // feed mounts with a pending profile id so the tab content never flashes
+  // before the fetched profile replaces it.
+  const [isInitialProfileLoading, setIsInitialProfileLoading] = useState<boolean>(!!initialProfileUserId);
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
   const [postComments, setPostComments] = useState<Record<string, any[]>>({});
@@ -137,12 +141,19 @@ function SocialFeed({ user, friends, initialProfileUserId, onProfileShown }: { u
   useEffect(() => { loadFeed(); }, []);
 
   // Load the profile when an id is passed in (e.g. an avatar click elsewhere
-  // in the app routed here). Clear the pending id afterward so a repeat
-  // click on the same user still re-routes correctly.
+  // in the app routed here). Flip the loading flag on first so the loader
+  // renders before the fetch resolves; clear it when setProfileUser fires.
   useEffect(() => {
     if (!initialProfileUserId) return;
+    setIsInitialProfileLoading(true);
     setProfileUser(null);
-    loadProfile(initialProfileUserId);
+    fetch(`${BASE}/profile/${initialProfileUserId}`, { headers: authHeader })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.data) setProfileUser(d.data);
+      })
+      .catch((err) => devWarn('SocialFeed.loadProfile', err))
+      .finally(() => setIsInitialProfileLoading(false));
     onProfileShown?.();
   }, [initialProfileUserId]);
   const loadExplore = () => { fetch(`${BASE}/explore`, { headers: authHeader }).then(r => r.json()).then(d => { if (d.data) setExploreUsers(d.data); }).catch((err) => devWarn('SocialFeed.loadExplore', err)); };
@@ -273,6 +284,15 @@ function SocialFeed({ user, friends, initialProfileUserId, onProfileShown }: { u
           </div>
         </div>
       )}
+    </div>
+  );
+
+  // While a profile is pending (avatar click from elsewhere in the app),
+  // don't flash the feed/explore/activity tabs. Render a minimal loading
+  // placeholder until the fetched profile replaces the view.
+  if (isInitialProfileLoading && !profileUser) return (
+    <div className="flex-1 flex flex-col min-h-0 items-center justify-center">
+      <div className="text-[13px] text-white/40">Loading profile…</div>
     </div>
   );
 
