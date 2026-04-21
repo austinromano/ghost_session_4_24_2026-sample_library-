@@ -42,12 +42,19 @@ export const useBookingsStore = create<BookingsState>((set, get) => ({
         }
         const booking = payload.booking as Booking | undefined;
         if (!booking) return;
+        const prev = current.find((b) => b.id === payload.bookingId);
         const idx = current.findIndex((b) => b.id === payload.bookingId);
         if (idx === -1) set({ bookings: [booking, ...current] });
         else {
           const next = [...current];
           next[idx] = booking;
           set({ bookings: next });
+        }
+        // When a booking just gained a projectId (i.e. the invitee accepted
+        // and the server auto-provisioned a shared project), refresh the
+        // project sidebar so it appears for both users immediately.
+        if (booking.projectId && prev?.projectId !== booking.projectId) {
+          window.dispatchEvent(new CustomEvent('ghost-refresh-project'));
         }
       });
       socketHandlerAttached = true;
@@ -61,8 +68,12 @@ export const useBookingsStore = create<BookingsState>((set, get) => ({
   },
 
   accept: async (id) => {
+    const prev = get().bookings.find((b) => b.id === id);
     const updated = await api.updateBooking(id, { status: 'accepted' });
     set({ bookings: get().bookings.map((b) => b.id === id ? updated : b) });
+    if (updated.projectId && prev?.projectId !== updated.projectId) {
+      window.dispatchEvent(new CustomEvent('ghost-refresh-project'));
+    }
   },
 
   decline: async (id) => {

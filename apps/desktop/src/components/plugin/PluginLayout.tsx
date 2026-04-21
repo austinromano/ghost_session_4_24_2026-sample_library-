@@ -140,10 +140,14 @@ export default function PluginLayout() {
 
   // Open a project by id from elsewhere in the app (e.g. the Join button on
   // a scheduled session). Fire: window.dispatchEvent(new CustomEvent('ghost-open-project', { detail: { projectId } }))
+  // Refetches the projects list first so a newly-added project (e.g. auto-
+  // created from a session acceptance) shows up in the sidebar.
   useEffect(() => {
-    const openHandler = (e: Event) => {
+    const openHandler = async (e: Event) => {
       const projectId = (e as CustomEvent<{ projectId: string }>).detail?.projectId;
-      if (projectId) selectProject(projectId);
+      if (!projectId) return;
+      await fetchProjects();
+      selectProject(projectId);
     };
     window.addEventListener('ghost-open-project', openHandler);
     return () => window.removeEventListener('ghost-open-project', openHandler);
