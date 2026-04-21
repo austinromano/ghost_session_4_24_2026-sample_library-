@@ -65,6 +65,19 @@ export default function MessagesView({ friends }: Props) {
     return cleanup;
   }, [currentUserId]);
 
+  // Auto-open the most recent conversation once it loads — saves the user a
+  // click every time they land on Messages. Skips if they've already picked
+  // one themselves, or if there are no conversations yet (empty state still
+  // shows so first-timers see the onboarding copy).
+  useEffect(() => {
+    if (activeUserId) return;
+    if (conversations.length === 0) return;
+    const mostRecent = conversations.find((c) => c.lastAt) || conversations[0];
+    if (!mostRecent) return;
+    setActive(mostRecent.userId);
+    openConversation(mostRecent.userId);
+  }, [conversations, activeUserId, setActive, openConversation]);
+
   const activeMessages = activeUserId ? (messagesByUser.get(activeUserId) || []) : [];
   const activeFriend = useMemo(() => {
     if (!activeUserId) return null;
