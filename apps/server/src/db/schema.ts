@@ -210,5 +210,8 @@ export const bookings = sqliteTable('bookings', {
   scheduledAt: text('scheduled_at').notNull(),
   durationMin: integer('duration_min').notNull().default(60),
   status: text('status', { enum: ['pending', 'accepted', 'declined', 'canceled'] }).notNull().default('pending'),
+  // Shared collab project created on acceptance so Join can route both users
+  // into the same WebRTC room.
+  projectId: text('project_id'),
   createdAt: timestamp('created_at').notNull(),
 });

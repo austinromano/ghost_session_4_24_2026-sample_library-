@@ -216,6 +216,7 @@ export interface Booking {
   scheduledAt: string;
   durationMin: number;
   status: 'pending' | 'accepted' | 'declined' | 'canceled';
+  projectId: string | null;
   createdAt: string;
   creator: { id: string; displayName: string; avatarUrl: string | null } | null;
   invitee: { id: string; displayName: string; avatarUrl: string | null } | null;

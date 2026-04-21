@@ -138,6 +138,17 @@ export default function PluginLayout() {
     return () => { clearInterval(pollTimer); window.removeEventListener('ghost-refresh-project', handleRefresh); };
   }, [selectedProjectId]);
 
+  // Open a project by id from elsewhere in the app (e.g. the Join button on
+  // a scheduled session). Fire: window.dispatchEvent(new CustomEvent('ghost-open-project', { detail: { projectId } }))
+  useEffect(() => {
+    const openHandler = (e: Event) => {
+      const projectId = (e as CustomEvent<{ projectId: string }>).detail?.projectId;
+      if (projectId) selectProject(projectId);
+    };
+    window.addEventListener('ghost-open-project', openHandler);
+    return () => window.removeEventListener('ghost-open-project', openHandler);
+  }, []);
+
   // Always land on WelcomeHero when the plugin opens — user picks a project
   // from the sidebar or a CTA. No auto-select.
 

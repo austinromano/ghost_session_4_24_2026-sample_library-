@@ -135,6 +135,11 @@ export interface ServerToClientEvents {
     read: boolean;
     createdAt: string;
   }) => void;
+  'booking-updated': (data: {
+    kind: 'created' | 'updated' | 'deleted';
+    bookingId: string;
+    booking?: unknown; // Full Booking object from API (with hydrated creator/invitee). Omitted on delete.
+  }) => void;
   'cursor-move': (data: {
     userId: string;
     displayName: string;

@@ -3,6 +3,14 @@ import { useBookingsStore } from '../../stores/bookingsStore';
 import { useAuthStore } from '../../stores/authStore';
 import type { Booking } from '../../lib/api';
 
+const JOIN_WINDOW_BEFORE_MS = 5 * 60 * 1000; // Join button appears 5 min before start
+// Returns true if `now` is within [scheduledAt - 5min, scheduledAt + durationMin]
+function isInJoinWindow(b: Booking, now: number): boolean {
+  const start = Date.parse(b.scheduledAt);
+  const end = start + b.durationMin * 60 * 1000;
+  return now >= start - JOIN_WINDOW_BEFORE_MS && now <= end;
+}
+
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -33,6 +41,14 @@ export default function MessagesCalendar() {
   useEffect(() => {
     if (currentUserId) bootstrap();
   }, [currentUserId, bootstrap]);
+
+  // Tick once a minute so the Join window is re-evaluated on all visible cards
+  // (bookings don't change, but their `is it time?` status does).
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Bucket non-canceled/declined bookings by local-date key for dot rendering.
   const bookingsByDay = useMemo(() => {
@@ -180,35 +196,56 @@ export default function MessagesCalendar() {
                       <div className="text-[10px] text-white/40 mt-0.5">
                         {iAmCreator ? 'With' : 'From'} {other?.displayName || 'Unknown'} · {b.durationMin}m
                       </div>
-                      {(canAcceptDecline || canCancel) && (
-                        <div className="flex gap-1 mt-2">
-                          {canAcceptDecline && (
-                            <>
-                              <button
-                                onClick={() => accept(b.id)}
-                                className="flex-1 h-6 rounded text-[10px] font-semibold text-white transition-opacity hover:opacity-90"
-                                style={{ background: 'linear-gradient(135deg, #7C3AED 0%, #4C1D95 100%)' }}
-                              >
-                                Accept
-                              </button>
-                              <button
-                                onClick={() => decline(b.id)}
-                                className="flex-1 h-6 rounded text-[10px] font-semibold text-white/60 bg-white/[0.05] hover:bg-white/[0.1] transition-colors"
-                              >
-                                Decline
-                              </button>
-                            </>
-                          )}
-                          {canCancel && (
+                      {(() => {
+                        const canJoin = b.status === 'accepted' && b.projectId && isInJoinWindow(b, Date.now());
+                        if (canJoin) {
+                          return (
                             <button
-                              onClick={() => cancel(b.id)}
-                              className="flex-1 h-6 rounded text-[10px] font-semibold text-white/60 bg-white/[0.05] hover:bg-white/[0.1] transition-colors"
+                              onClick={() => window.dispatchEvent(new CustomEvent('ghost-open-project', { detail: { projectId: b.projectId } }))}
+                              className="w-full h-7 mt-2 rounded text-[11px] font-bold text-black transition-opacity hover:opacity-90 flex items-center justify-center gap-1.5"
+                              style={{ background: 'linear-gradient(135deg, #00FFC8 0%, #00B896 100%)', boxShadow: '0 0 12px rgba(0,255,200,0.35)' }}
                             >
-                              Cancel
+                              <span className="relative flex h-1.5 w-1.5">
+                                <span className="absolute inline-flex h-full w-full rounded-full bg-black/50 opacity-75 animate-ping" />
+                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-black" />
+                              </span>
+                              Join session
                             </button>
-                          )}
-                        </div>
-                      )}
+                          );
+                        }
+                        if (canAcceptDecline || canCancel) {
+                          return (
+                            <div className="flex gap-1 mt-2">
+                              {canAcceptDecline && (
+                                <>
+                                  <button
+                                    onClick={() => accept(b.id)}
+                                    className="flex-1 h-6 rounded text-[10px] font-semibold text-white transition-opacity hover:opacity-90"
+                                    style={{ background: 'linear-gradient(135deg, #7C3AED 0%, #4C1D95 100%)' }}
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => decline(b.id)}
+                                    className="flex-1 h-6 rounded text-[10px] font-semibold text-white/60 bg-white/[0.05] hover:bg-white/[0.1] transition-colors"
+                                  >
+                                    Decline
+                                  </button>
+                                </>
+                              )}
+                              {canCancel && (
+                                <button
+                                  onClick={() => cancel(b.id)}
+                                  className="flex-1 h-6 rounded text-[10px] font-semibold text-white/60 bg-white/[0.05] hover:bg-white/[0.1] transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   );
                 })}

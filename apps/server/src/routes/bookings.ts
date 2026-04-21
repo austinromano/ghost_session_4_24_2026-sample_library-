@@ -2,9 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { db } from '../db/index.js';
-import { bookings, users, follows } from '../db/schema.js';
+import { bookings, users, follows, projects, projectMembers } from '../db/schema.js';
 import { and, eq, or, inArray, desc } from 'drizzle-orm';
 import { authMiddleware, type AuthUser } from '../middleware/auth.js';
+import { emitBookingUpdated } from '../ws/index.js';
 
 const bookingsRoutes = new Hono();
 bookingsRoutes.use('*', authMiddleware);
@@ -82,6 +83,7 @@ bookingsRoutes.post('/', async (c) => {
 
   const [row] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1).all();
   const [hydrated] = await hydrate([row]);
+  emitBookingUpdated([me.id, body.inviteeId], 'created', id, hydrated);
   return c.json({ success: true, data: hydrated });
 });
 
@@ -115,23 +117,54 @@ bookingsRoutes.patch('/:id', async (c) => {
     if (body.durationMin !== undefined) patch.durationMin = body.durationMin;
     if (body.title !== undefined) patch.title = body.title;
   }
+
+  // On first acceptance, spin up a shared project so both users have a room
+  // to join when the session starts.
+  if (body.status === 'accepted' && !existing.projectId) {
+    const projectId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const projName = existing.title?.trim() || `Session with ${me.displayName}`;
+    await db.insert(projects).values({
+      id: projectId,
+      name: projName,
+      description: `Auto-created from a scheduled session on ${new Date(existing.scheduledAt).toLocaleString()}`,
+      ownerId: existing.creatorId,
+      tempo: 0,
+      key: '',
+      genre: '',
+      projectType: 'project',
+      timeSignature: '',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    // Both participants are editors on the shared project.
+    await db.insert(projectMembers).values([
+      { projectId, userId: existing.creatorId, role: 'owner', joinedAt: now },
+      { projectId, userId: existing.inviteeId, role: 'editor', joinedAt: now },
+    ]).run();
+    patch.projectId = projectId;
+  }
+
   if (Object.keys(patch).length === 0) {
     return c.json({ success: true, data: (await hydrate([existing]))[0] });
   }
 
   await db.update(bookings).set(patch).where(eq(bookings.id, id)).run();
   const [updated] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1).all();
-  return c.json({ success: true, data: (await hydrate([updated]))[0] });
+  const [hydrated] = await hydrate([updated]);
+  emitBookingUpdated([existing.creatorId, existing.inviteeId], 'updated', id, hydrated);
+  return c.json({ success: true, data: hydrated });
 });
 
 // DELETE /bookings/:id — hard delete. Only the creator may delete.
 bookingsRoutes.delete('/:id', async (c) => {
   const me = c.get('user') as AuthUser;
   const id = c.req.param('id');
-  const [existing] = await db.select({ creatorId: bookings.creatorId }).from(bookings).where(eq(bookings.id, id)).limit(1).all();
+  const [existing] = await db.select({ creatorId: bookings.creatorId, inviteeId: bookings.inviteeId }).from(bookings).where(eq(bookings.id, id)).limit(1).all();
   if (!existing) throw new HTTPException(404, { message: 'Booking not found' });
   if (existing.creatorId !== me.id) throw new HTTPException(403, { message: 'Only the creator can delete' });
   await db.delete(bookings).where(eq(bookings.id, id)).run();
+  emitBookingUpdated([existing.creatorId, existing.inviteeId], 'deleted', id);
   return c.json({ success: true });
 });
 

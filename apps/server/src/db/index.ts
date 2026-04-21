@@ -193,6 +193,7 @@ export async function initDatabase() {
       scheduled_at TEXT NOT NULL,
       duration_min INTEGER NOT NULL DEFAULT 60,
       status TEXT NOT NULL DEFAULT 'pending',
+      project_id TEXT,
       created_at TEXT NOT NULL
     );
   `);
@@ -207,6 +208,7 @@ export async function initDatabase() {
     `ALTER TABLE files ADD COLUMN peaks TEXT`,
     `ALTER TABLE direct_messages ADD COLUMN audio_file_id TEXT`,
     `ALTER TABLE direct_messages ADD COLUMN audio_file_name TEXT`,
+    `ALTER TABLE bookings ADD COLUMN project_id TEXT`,
   ];
   // ADD COLUMN migrations are idempotent by design — "duplicate column" is expected
   // on every boot after the first. Any other error is worth surfacing.

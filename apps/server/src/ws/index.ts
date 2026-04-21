@@ -98,3 +98,10 @@ export function emitProjectUpdated(projectId: string, reason: 'track-added' | 't
 export function emitDm(userId: string, msg: { id: string; fromUserId: string; toUserId: string; text: string; read: boolean; createdAt: string }) {
   ioInstance?.to(`user:${userId}`).emit('dm-received', msg);
 }
+
+/** Notify both participants of a booking change (create/update/delete). */
+export function emitBookingUpdated(userIds: string[], kind: 'created' | 'updated' | 'deleted', bookingId: string, booking?: unknown) {
+  for (const uid of userIds) {
+    ioInstance?.to(`user:${uid}`).emit('booking-updated', { kind, bookingId, booking });
+  }
+}
