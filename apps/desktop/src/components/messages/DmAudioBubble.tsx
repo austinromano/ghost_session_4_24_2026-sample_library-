@@ -181,15 +181,11 @@ export default function DmAudioBubble({ fileId, fileName, isOwn, audioPath = '/d
             e.stopPropagation();
             const url = `${API_BASE}${audioPath}/${fileId}${token ? `?token=${token}` : ''}`;
             const safeName = fileName.match(/\.(wav|mp3|flac|aiff|ogg|m4a|aac)$/i) ? fileName : `${fileName}.wav`;
-            // ghost://download-stem downloads the file and pushes it onto the
-            // DragStrip below the plugin — same dock the Download-Stems button
-            // uses. From there the user drags into their DAW.
-            const ghostUrl = `ghost://download-stem?url=${encodeURIComponent(url)}&fileName=${encodeURIComponent(safeName)}`;
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = ghostUrl;
-            document.body.appendChild(iframe);
-            setTimeout(() => iframe.remove(), 1000);
+            // Use the same __ghostPendingExport polling path the Download-
+            // Stems button uses — the plugin's timerCallback picks it up,
+            // downloads the file, and shows it on the DragStrip dock below
+            // the plugin. Iframe-based ghost:// URLs aren't reliable here.
+            (window as any).__ghostPendingExport = JSON.stringify([{ url, name: safeName }]);
           }}
           className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center hover:brightness-125 transition-all"
           style={{
