@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useAudioStore, pendingTrackOffsets } from '../../stores/audioStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { api } from '../../lib/api';
 import { snapToBar } from '../../lib/audio';
 import Waveform from '../tracks/Waveform';
@@ -328,11 +329,26 @@ export function DraggableTrackList({ tracks, selectedProjectId, deleteTrack, upd
     return acc;
   }, new Map<string, any[]>());
 
+  // If the server has a non-empty persisted arrangement, trust it and skip
+  // the seeder — otherwise default idx*clipDur positions would stomp on the
+  // user's saved drags after the restore applies. An empty clips array is
+  // treated as "no arrangement yet" so fresh projects still get seeded.
+  const hasServerArrangement = useProjectStore((s) => {
+    const raw = s.currentProject?.arrangementJson;
+    if (!raw) return false;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed?.clips) && parsed.clips.length > 0;
+    } catch {
+      return false;
+    }
+  });
+
   // Seed startOffsets for never-positioned duplicate clips so they land side
-  // by side on first load. Runs on every loadedTracks change so late-arriving
-  // tracks still get their offset seeded — once seededRef has the id, we
-  // stop touching it so drags survive.
+  // by side on FIRST load (before anything is saved). Once the server owns
+  // an arrangement, this effect no-ops.
   useEffect(() => {
+    if (hasServerArrangement) return;
     lanes.forEach((laneTracks) => {
       if (laneTracks.length <= 1) return;
       const firstBuffer = loadedTracks.get(laneTracks[0].id)?.buffer;
@@ -342,14 +358,14 @@ export function DraggableTrackList({ tracks, selectedProjectId, deleteTrack, upd
         if (idx === 0) return;
         if (seededRef.current.has(t.id)) return;
         const loaded = loadedTracks.get(t.id);
-        if (!loaded) return; // wait for load — don't mark as seeded yet
+        if (!loaded) return;
         if (loaded.startOffset === 0) {
           setTrackOffset(t.id, idx * clipDur);
         }
         seededRef.current.add(t.id);
       });
     });
-  }, [tracks.length, bufferVersion, loadedTracks]);
+  }, [tracks.length, bufferVersion, loadedTracks, hasServerArrangement]);
 
   // When the project changes, forget what we've seeded so the new project
   // starts clean.
