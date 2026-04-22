@@ -60,6 +60,24 @@ export default function TransportBar({ tracks, projectId, projectTempo, onTempoC
     loadedRef.current.clear();
   }, [projectId]);
 
+  // If the audio store gets cleaned up (e.g. the user re-clicked the same
+  // project and selectProject called audioCleanup), loadedTracks drops to 0
+  // while projectId stays the same. TransportBar never unmounts, so our
+  // restore refs still point at the old session — the restore effect would
+  // short-circuit with "already restored" and the saved state would never
+  // re-apply. Reset the refs so the next load re-runs restore from scratch.
+  const loadedSize = useAudioStore((s) => s.loadedTracks.size);
+  const lastLoadedSizeRef = useRef(0);
+  useEffect(() => {
+    if (loadedSize === 0 && lastLoadedSizeRef.current > 0) {
+      console.log('[arrangement] audio cleanup detected — resetting restore refs');
+      restoredProjectIdRef.current = null;
+      lastAppliedServerRef.current = null;
+      lastSentServerRef.current = null;
+    }
+    lastLoadedSizeRef.current = loadedSize;
+  }, [loadedSize]);
+
   // Track the last arrangement blob we've applied from the server so we can
   // (a) restore when the project first loads, and (b) re-apply when a
   // collaborator pushes an update mid-session — while skipping echoes of
