@@ -151,9 +151,7 @@ export default memo(function Waveform({
       const peakTop = peaks[x] * scalePeak;
       if (peakTop < 0.5) continue;
       const rmsTop = Math.min(rms[x] * scaleRms, peakTop);
-      // ZCR in the 0..0.25 range maps to 0..280° (red → violet). sqrt curve
-      // spreads the low/mid range so drums and bass read distinctly.
-      const hue = Math.min(280, Math.sqrt(zcr[x]) * 560);
+      const hue = 270;
       // Crest factor: sine ≈ 1.41, percussive hits 3+. Clamp to 40% boost.
       const sat = 55 + Math.min(35, (crest[x] - 1.4) * 10);
       // Onset energy brightens attacks — caps at +18% lightness.
