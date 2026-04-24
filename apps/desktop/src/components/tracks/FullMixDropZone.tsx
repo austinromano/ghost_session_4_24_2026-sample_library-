@@ -2,6 +2,7 @@ import { useState, memo } from 'react';
 import { motion } from 'framer-motion';
 import { api } from '../../lib/api';
 import Waveform from './Waveform';
+import { SAMPLE_LIBRARY_DRAG_MIME } from '../layout/SampleLibrarySection';
 
 export default memo(function FullMixDropZone({ projectId, onFilesAdded, isBeat, compact, rightSlot }: { projectId: string; onFilesAdded: () => void; isBeat?: boolean; compact?: boolean; rightSlot?: React.ReactNode }) {
   const [dragOver, setDragOver] = useState(false);
@@ -12,6 +13,30 @@ export default memo(function FullMixDropZone({ projectId, onFilesAdded, isBeat, 
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
+
+    // Library drag — no upload needed, server copies storage + creates track.
+    const libPayload = e.dataTransfer.getData(SAMPLE_LIBRARY_DRAG_MIME);
+    if (libPayload) {
+      try {
+        const { id, name } = JSON.parse(libPayload);
+        if (id) {
+          setUploading(true);
+          setStatus(`Adding ${name || 'sample'}…`);
+          try {
+            await api.copySampleLibraryFileToProject(id, projectId);
+            setStatus('Added from library');
+            onFilesAdded();
+          } catch (err: any) {
+            setStatus(err?.message || 'Library import failed');
+          } finally {
+            setUploading(false);
+            setTimeout(() => setStatus(''), 3000);
+          }
+          return;
+        }
+      } catch { /* fall through to OS-file path */ }
+    }
+
     const droppedFiles = Array.from(e.dataTransfer.files).filter((f) =>
       f.type.startsWith('audio/') || f.name.match(/\.(wav|mp3|flac|aiff|ogg|m4a|aac)$/i)
     );
