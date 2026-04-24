@@ -92,6 +92,25 @@ export default function TransportBar({ tracks, projectId, projectTempo, onTempoC
   useEffect(() => {
     if (!tracks || !projectId) return;
     if (restoredProjectIdRef.current === projectId) return;
+    // Guard against the vacuous-truth trap: during project switches `tracks`
+    // briefly flips to [] before the new project's tracks arrive. `every()`
+    // on an empty array returns true, which used to fire restore with an
+    // empty store, flip the save gate open, and let the next partial load
+    // POST an incomplete arrangement back to the server — wiping saved work.
+    if (tracks.length === 0) {
+      console.log('[arrangement] restore waiting — tracks prop empty');
+      return;
+    }
+    // Also require at least one audio track actually in the store when the
+    // project has any file-backed tracks. Otherwise we'd open the save gate
+    // before loadTrackFromBuffer has populated anything, and the first save
+    // would be empty.
+    const hasFileTracks = tracks.some((t: any) => t.fileId);
+    const storeSize = useAudioStore.getState().loadedTracks.size;
+    if (hasFileTracks && storeSize === 0) {
+      console.log('[arrangement] restore waiting — audio store empty');
+      return;
+    }
     const allLoaded = tracks.every((t: any) => !t.fileId || loadedRef.current.has(t.id));
     if (!allLoaded) {
       console.log('[arrangement] restore waiting — not all tracks loaded', {
@@ -173,6 +192,18 @@ export default function TransportBar({ tracks, projectId, projectTempo, onTempoC
       console.log('[arrangement] save blocked — restore not yet run', { projectId });
       return;
     }
+    // Defense-in-depth: never POST a state that's missing base tracks the
+    // server knows about. If any file-backed track from `tracks` hasn't made
+    // it into the store yet, defer — otherwise buildArrangementState would
+    // emit a partial blob and overwrite saved clips for the missing ones.
+    const fileBackedTracks = tracks.filter((t: any) => t.fileId);
+    const allBaseTracksLoaded = fileBackedTracks.every((t: any) => arrangeLoadedTracks.has(t.id));
+    if (!allBaseTracksLoaded) {
+      console.log('[arrangement] save blocked — base tracks not all in store', {
+        expected: fileBackedTracks.length, have: arrangeLoadedTracks.size,
+      });
+      return;
+    }
     const timer = setTimeout(async () => {
       const fileIdMap = new Map<string, string>();
       for (const t of tracks) {
@@ -211,6 +242,14 @@ export default function TransportBar({ tracks, projectId, projectTempo, onTempoC
       }
       if (restoredProjectIdRef.current !== projectId) {
         console.log('[arrangement] flush skipped — restore not yet run', { projectId, ref: restoredProjectIdRef.current });
+        return;
+      }
+      // Same guard as the debounced save — don't flush a partial blob if
+      // any base track hasn't been loaded into the store yet.
+      const loaded = useAudioStore.getState().loadedTracks;
+      const fileBacked = tracks.filter((t: any) => t.fileId);
+      if (!fileBacked.every((t: any) => loaded.has(t.id))) {
+        console.log('[arrangement] flush skipped — base tracks not all in store');
         return;
       }
       const fileIdMap = new Map<string, string>();
