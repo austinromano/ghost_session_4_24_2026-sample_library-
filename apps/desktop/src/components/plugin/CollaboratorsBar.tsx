@@ -12,7 +12,6 @@ interface Props {
 export default function CollaboratorsBar({ members, onlineUsers, onInvite }: Props) {
   const sorted = [...members].sort((a, b) => (a.role === 'owner' ? -1 : b.role === 'owner' ? 1 : 0));
   const owners = sorted.filter((m) => m.role === 'owner');
-  const others = sorted.filter((m) => m.role !== 'owner');
   const speakingUserIds = useWebrtcStore((s) => s.speakingUserIds);
 
   const renderAvatar = (m: ProjectMember) => {
@@ -50,11 +49,9 @@ export default function CollaboratorsBar({ members, onlineUsers, onInvite }: Pro
   return (
     <div className="mb-4">
       <div className="flex items-center gap-4 glass-subtle px-5 h-[68px]">
-        {others.length > 0 && (
-          <div className="flex items-center -space-x-2">
-            {others.map(renderAvatar)}
-          </div>
-        )}
+        <div className="flex items-center -space-x-2">
+          {sorted.map(renderAvatar)}
+        </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {owners.map((m) => (
