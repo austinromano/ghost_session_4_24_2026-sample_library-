@@ -14,6 +14,12 @@ export default function SampleLibrarySection() {
   const [open, setOpen] = useState(false);
   const [expandedFolder, setExpandedFolder] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Keyboard-nav focus: the id of the row currently selected for up/down
+  // stepping. Clicking any row (or preview button) sets this; Escape clears
+  // it; pressing ArrowUp/ArrowDown while set moves through the VISIBLE list
+  // (root files + files inside the currently-expanded folder) and auto-
+  // previews the new selection.
+  const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const [dragFolderId, setDragFolderId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -28,6 +34,56 @@ export default function SampleLibrarySection() {
     }
     return m;
   }, [files]);
+
+  // The ordered list the arrow keys step through. Follows the on-screen
+  // order: each folder's contents (when expanded) in folder-listing order,
+  // then root-level files after the folders.
+  const navList = useMemo<SampleLibraryFile[]>(() => {
+    const out: SampleLibraryFile[] = [];
+    for (const folder of folders) {
+      if (expandedFolder === folder.id) {
+        const inside = byFolder.get(folder.id) || [];
+        out.push(...inside);
+      }
+    }
+    out.push(...rootFiles);
+    return out;
+  }, [folders, expandedFolder, byFolder, rootFiles]);
+
+  // Auto-preview the focused row. Every time the keyboard moves to a new
+  // file, samplePreview.toggle plays it (and stops the prior one).
+  useEffect(() => {
+    if (!focusedFileId) return;
+    samplePreview.toggle(focusedFileId);
+  }, [focusedFileId]);
+
+  // Arrow-key navigation through the library. Only fires when the user has
+  // already clicked into the library (focusedFileId set) and the event
+  // target isn't a text input, so typing in chat/rename fields still works.
+  useEffect(() => {
+    if (!focusedFileId || !open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tgt = e.target as HTMLElement | null;
+      const tag = tgt?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tgt?.isContentEditable) return;
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Escape') return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setFocusedFileId(null);
+        samplePreview.stop();
+        return;
+      }
+      const idx = navList.findIndex((f) => f.id === focusedFileId);
+      if (idx < 0 || navList.length === 0) return;
+      e.preventDefault();
+      const nextIdx = e.key === 'ArrowDown'
+        ? Math.min(navList.length - 1, idx + 1)
+        : Math.max(0, idx - 1);
+      if (nextIdx !== idx) setFocusedFileId(navList[nextIdx].id);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [focusedFileId, open, navList]);
 
   const isAudio = (f: File) => {
     if (f.type.startsWith('audio/')) return true;
@@ -259,13 +315,13 @@ export default function SampleLibrarySection() {
                     ×
                   </button>
                 </div>
-                {isExpanded && inside.map((f) => <LibraryFileRow key={f.id} file={f} onDelete={() => confirmDeleteFile(f)} />)}
+                {isExpanded && inside.map((f) => <LibraryFileRow key={f.id} file={f} onDelete={() => confirmDeleteFile(f)} isFocused={focusedFileId === f.id} onFocus={() => setFocusedFileId(f.id)} />)}
               </div>
             );
           })}
 
           {/* Root files */}
-          {rootFiles.map((f) => <LibraryFileRow key={f.id} file={f} onDelete={() => confirmDeleteFile(f)} />)}
+          {rootFiles.map((f) => <LibraryFileRow key={f.id} file={f} onDelete={() => confirmDeleteFile(f)} isFocused={focusedFileId === f.id} onFocus={() => setFocusedFileId(f.id)} />)}
 
           {folders.length === 0 && rootFiles.length === 0 && (
             <div className="text-[11px] text-white/30 px-2 py-3 text-center italic">Empty — drop audio in to get started.</div>
@@ -276,12 +332,23 @@ export default function SampleLibrarySection() {
   );
 }
 
-function LibraryFileRow({ file, onDelete }: { file: SampleLibraryFile; onDelete: () => void }) {
+function LibraryFileRow({ file, onDelete, isFocused, onFocus }: {
+  file: SampleLibraryFile;
+  onDelete: () => void;
+  isFocused: boolean;
+  onFocus: () => void;
+}) {
   // Subscribe to the global preview singleton so this row shows the right
   // play/stop icon whenever its file is the one currently playing.
   const [previewingId, setPreviewingId] = useState<string | null>(samplePreview.currentId);
   useEffect(() => samplePreview.subscribe(setPreviewingId), []);
   const isPreviewing = previewingId === file.id;
+
+  // Scroll the focused row into view when keyboard nav lands on it.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (isFocused) rootRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [isFocused]);
 
   const onDragStart = (e: React.DragEvent) => {
     try {
@@ -297,15 +364,28 @@ function LibraryFileRow({ file, onDelete }: { file: SampleLibraryFile; onDelete:
 
   const togglePreview = (e: React.MouseEvent) => {
     e.stopPropagation();
-    samplePreview.toggle(file.id);
+    onFocus();
+  };
+
+  const handleRowClick = () => {
+    // Clicking anywhere on the row sets it as the keyboard-nav anchor and
+    // previews. Matches how every serious sample browser works (Splice,
+    // Serum, Ableton Browser).
+    onFocus();
   };
 
   return (
     <div
+      ref={rootRef}
       draggable
       onDragStart={onDragStart}
-      className="group w-full flex items-center gap-2 pl-4 pr-2 py-1 text-[12px] rounded-md text-white/55 hover:bg-white/[0.04] hover:text-white cursor-grab active:cursor-grabbing select-none"
-      title={`${file.displayName} — click ▶ to preview, drag to add`}
+      onClick={handleRowClick}
+      className={`group w-full flex items-center gap-2 pl-4 pr-2 py-1 text-[12px] rounded-md cursor-grab active:cursor-grabbing select-none transition-colors ${
+        isFocused
+          ? 'bg-ghost-green/10 text-white ring-1 ring-ghost-green/40'
+          : 'text-white/55 hover:bg-white/[0.04] hover:text-white'
+      }`}
+      title={`${file.displayName} — click to preview, drag to add`}
     >
       <button
         onClick={togglePreview}
