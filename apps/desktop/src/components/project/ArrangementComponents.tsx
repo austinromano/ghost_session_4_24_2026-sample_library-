@@ -290,15 +290,23 @@ export function BarRuler() {
 // are dimmer for context.
 export function BarGridOverlay() {
   const { numBars } = useArrangement();
-  const step = numBars <= 24 ? 2 : numBars <= 48 ? 4 : numBars <= 96 ? 8 : 16;
+  // Two-tier density. `labeledStep` = bright lines that align with the
+  // labeled BarRuler ticks. `minorStep` = how often a dim line is drawn
+  // in between. Past ~64 bars the dim in-between lines start crowding,
+  // so we drop them and the grid stays readable in fit-all-bars view.
+  const labeledStep = numBars <= 24 ? 2 : numBars <= 48 ? 4 : numBars <= 96 ? 8 : 16;
+  const minorStep = numBars <= 16 ? 1 : numBars <= 32 ? 1 : numBars <= 64 ? 2 : numBars <= 128 ? 4 : 8;
   return (
     <div
       className="absolute pointer-events-none"
       style={{ left: TRACK_HEADER_WIDTH, top: 0, bottom: 0, right: 0, zIndex: 15 }}
     >
       {Array.from({ length: numBars }).map((_, i) => {
+        // Skip the line entirely if it isn't on the labeled step or the
+        // minor step — keeps the grid clean at high bar counts.
+        const isLabeled = i % labeledStep === 0;
+        if (!isLabeled && i % minorStep !== 0) return null;
         const leftPct = (i / numBars) * 100;
-        const labeled = i % step === 0;
         return (
           <div
             key={i}
@@ -306,7 +314,7 @@ export function BarGridOverlay() {
             style={{
               left: `${leftPct}%`,
               width: 1,
-              background: labeled ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)',
+              background: isLabeled ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)',
             }}
           />
         );
