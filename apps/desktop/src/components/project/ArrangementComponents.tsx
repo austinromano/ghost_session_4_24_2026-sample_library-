@@ -282,7 +282,38 @@ export function BarRuler() {
     </div>
   );
 }
-export function BarGridOverlay() { return null; }
+// Full-height vertical bar lines — same density as the BarRuler, drawn as
+// an overlay over the lane area so the time grid runs continuously top to
+// bottom (FL Studio playlist look). Renders ON TOP of clips with low
+// opacity + pointer-events:none so it reads through them without blocking
+// any interaction. Lines on labeled bars are brighter; in-between bars
+// are dimmer for context.
+export function BarGridOverlay() {
+  const { numBars } = useArrangement();
+  const step = numBars <= 24 ? 2 : numBars <= 48 ? 4 : numBars <= 96 ? 8 : 16;
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{ left: TRACK_HEADER_WIDTH, top: 0, bottom: 0, right: 0, zIndex: 15 }}
+    >
+      {Array.from({ length: numBars }).map((_, i) => {
+        const leftPct = (i / numBars) * 100;
+        const labeled = i % step === 0;
+        return (
+          <div
+            key={i}
+            className="absolute top-0 bottom-0"
+            style={{
+              left: `${leftPct}%`,
+              width: 1,
+              background: labeled ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)',
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 /* ── Playhead across all lanes ── */
 export function ArrangementPlayhead() {
@@ -898,6 +929,11 @@ export function DraggableTrackList({ tracks, selectedProjectId, deleteTrack, upd
           );
         })}
       </Reorder.Group>
+      {/* Bar grid lines drawn ON TOP of all lanes (FL-Studio playlist
+          style). pointer-events:none so the lines never block clip
+          interactions. Opacity is low enough that clip waveforms read
+          through cleanly. */}
+      <BarGridOverlay />
       {marquee && (
         <div
           className="pointer-events-none"
